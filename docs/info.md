@@ -9,12 +9,13 @@ You can also include images in this folder and reference them in the markdown. E
 
 ## How it works
 
-Explain how your project works
+Logic is dual redundantly encoded so we can distingush data (DATAx)
+and no data (NULL). ... to be filled in.
 
 ## How to test
 
-Explain how to use your project
+You can't really test without a scope and a way to drive inputs
 
 ## External hardware
 
-List external hardware used in your project (e.g. PMOD, LED display, etc), if any
+Scope

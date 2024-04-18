@@ -6,21 +6,45 @@
 `define default_netname none
 `default_nettype none
 
-// Muller's C-element
-module celem(input A, input B, output Q);
+`ifdef COCOTB_SIM
+
+// Muller's C-element also TH22
+module tt22(input A, input B, output reg Q);
+   always @(*) if (A == B) Q <= #1 A;
+endmodule
+
+// Like tt22 but NULL while init is asserted
+module tt22n(input A, input B, input init, output reg Q);
+   always @(*) if (init) Q <= #1 0; else if (A == B) Q <= #1 A;
+endmodule
+
+// Like tt22 but DATA while init is asserted
+module tt22d(input A, input B, input init, output reg Q);
+   always @(*) if (init) Q <= #1 1; else if (A == B) Q <= #1 A;
+endmodule
+
+`else
+
+module tt22(input A, input B, output Q);
    // We can implement this with a majority gate with feedback
    sky130_fd_sc_hd__maj3_1 maj(.X(Q), .A(A), .B(B), .C(Q));
 endmodule
 
-`ifdef COCOTB_SIM
-module sky130_fd_sc_hd__maj3_1 (
-    output X,
-    input  A,
-    input  B,
-    input  C
-);
-   assign X = A & B | C & (A | B);
+module tt22n(input A, input B, input init, output Q);
+   wire Q1;
+   // We can implement this with a majority gate with feedback
+   sky130_fd_sc_hd__maj3_1 maj(.X(Q1), .A(A), .B(B), .C(Q));
+   assign Q = init ? 0 : Q1; // == !init & Q1"
 endmodule
+
+// Like tt22 but DATA while init is asserted
+module tt22d(input A, input B, input init, output Q);
+   wire Q1;
+   // We can implement this with a majority gate with feedback
+   sky130_fd_sc_hd__maj3_1 maj(.X(Q1), .A(A), .B(B), .C(Q));
+   assign Q = init ? 1 : Q1; // == init | Q1
+endmodule
+
 `endif
 
 module tt_um_tommythorn_ncl_lfsr (
@@ -36,12 +60,39 @@ module tt_um_tommythorn_ncl_lfsr (
 /* verilator lint_on UNUSEDSIGNAL */
 );
 
-   assign uo_out[7:1] = 0;
    assign uio_oe = 0;
    assign uio_out = 0;
 
    // Simple C-element
-   celem celem_inst(.A(ui_in[0]), .B(ui_in[1]), .Q(uo_out[0]));
+   tt22 tt22_inst(.A(ui_in[0]), .B(ui_in[1]), .Q(uo_out[0]));
+
+   // Simple NCL ring:
+   //
+   //     A -> B -> C -> D
+   //     ^-------------/
+   //
+
+   wire               init = ui_in[2];
+   wire               g0_out;
+   wire               g1_out;
+   wire               g2_out;
+   wire               g3_out;
+   wire               g0_complete;
+   wire               g1_complete;
+   wire               g2_complete;
+   wire               g3_complete;
+   assign             g0_complete = g0_out;
+   assign             g1_complete = g1_out;
+   assign             g2_complete = g2_out;
+   assign             g3_complete = g3_out;
+
+   assign uo_out[7:1] = {g3_out,g2_out,g1_out,g0_out};
+
+
+   tt22n g0(.A(g3_out), .B(!g1_complete), .Q(g0_out), .init(init));
+   tt22d g1(.A(g0_out), .B(!g2_complete), .Q(g1_out), .init(init));
+   tt22n g2(.A(g1_out), .B(!g3_complete), .Q(g2_out), .init(init));
+   tt22n g3(.A(g2_out), .B(!g0_complete), .Q(g3_out), .init(init));
 endmodule
 
 `ifdef COCOTB_SIM
@@ -70,12 +121,21 @@ module mytb;
 
 
    initial begin
-      $monitor("%5d  A %d B %d  Q %d", $time, ui_in[0], ui_in[1], uo_out[0]);
+      $monitor("%5d  One TT22 A %d B %d  Q %d",
+               $time, ui_in[0], ui_in[1], uo_out[0]);
+
+      ui_in[2] = 1;
 
       #10 ui_in[0] = 1;
       #10 ui_in[1] = 1;
       #10 ui_in[0] = 0;
       #10 ui_in[1] = 0;
+
+      #30
+      $monitor("%5d  Ring (init %d) %d%d%d%d",
+               $time, ui_in[2], uo_out[1], uo_out[2], uo_out[3], uo_out[4]);
+      #10
+        ui_in[2] = 0;
 
       #100 $display("The End");
       $finish;
